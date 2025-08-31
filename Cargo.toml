@@ -1,0 +1,13 @@
+[package]
+name = "kafkalite"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.47", features = ["net", "rt-multi-thread", "macros", "signal"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tokio-stream = "0.1"
+futures-util = { version = "0.3", features = ["sink"] }
+bytes = "1.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "fmt", "env-filter"] }
