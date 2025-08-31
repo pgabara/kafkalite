@@ -1,12 +1,11 @@
-use bytes::BytesMut;
-use futures_util::SinkExt;
+use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Notify;
-use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::config::BrokerConfig;
+use crate::protocol::{Request, RequestCodec, Response, ResponseCodec};
 
 pub async fn start_broker(
     config: BrokerConfig,
@@ -48,18 +47,17 @@ pub async fn start_broker(
 }
 
 async fn handle_connection(socket: TcpStream, config: &BrokerConfig) -> tokio::io::Result<()> {
-    let mut framed_socket = Framed::new(socket, LengthDelimitedCodec::new());
+    let (read_half, write_half) = tokio::io::split(socket);
+    let mut reader = FramedRead::new(read_half, RequestCodec);
+    let mut writer = FramedWrite::new(write_half, ResponseCodec);
 
     let timeout = config.connection_timeout;
-    while let Some(bytes) = tokio::time::timeout(timeout, framed_socket.next()).await? {
-        let bytes = bytes?;
-        tracing::debug!("Received bytes: {:?}", bytes);
-        let response = if &bytes[..] == b"PING" {
-            BytesMut::from("PONG").freeze()
-        } else {
-            BytesMut::from("ERR").freeze()
-        };
-        framed_socket.send(response).await?;
+    while let Some(request) = tokio::time::timeout(timeout, reader.next()).await? {
+        let request = request?;
+        tracing::debug!("Received request: {:?}", request);
+        match request {
+            Request::Ping => writer.send(Response::Pong).await?,
+        }
     }
 
     Ok(())

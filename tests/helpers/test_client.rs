@@ -1,12 +1,14 @@
-use futures_util::SinkExt;
+use futures::{SinkExt, StreamExt};
+use kafkalite::protocol::{Request, RequestCodec, Response, ResponseCodec};
 use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
-use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 pub struct TestClient {
-    socket: Framed<TcpStream, LengthDelimitedCodec>,
+    reader: FramedRead<ReadHalf<TcpStream>, ResponseCodec>,
+    writer: FramedWrite<WriteHalf<TcpStream>, RequestCodec>,
 }
 
 impl TestClient {
@@ -14,25 +16,26 @@ impl TestClient {
         let socket = TcpStream::connect(addr)
             .await
             .expect("Failed to connect to broker");
-        let socket = Framed::new(socket, LengthDelimitedCodec::new());
-        Self { socket }
+        let (read_half, write_half) = tokio::io::split(socket);
+        let reader = FramedRead::new(read_half, ResponseCodec);
+        let writer = FramedWrite::new(write_half, RequestCodec);
+        Self { reader, writer }
     }
 
-    pub async fn send(&mut self, data: bytes::Bytes) -> bytes::Bytes {
-        self.socket
-            .send(data)
+    pub async fn send(&mut self, request: Request) -> Response {
+        self.writer
+            .send(request)
             .await
             .expect("Failed to send data to broker");
-        tokio::time::timeout(Duration::from_secs(1), self.socket.next())
+        tokio::time::timeout(Duration::from_secs(1), self.reader.next())
             .await
             .expect("Timed out waiting for response")
             .expect("Returned empty response")
             .expect("Failed to read response")
-            .freeze()
     }
 
     pub async fn check_is_connection_closed(&mut self) -> bool {
-        tokio::time::timeout(Duration::from_secs(1), self.socket.next())
+        tokio::time::timeout(Duration::from_secs(1), self.reader.next())
             .await
             .expect("Timed out waiting for response")
             .is_none()
