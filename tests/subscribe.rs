@@ -1,8 +1,9 @@
+pub mod helpers;
+
 use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
 
-mod helpers;
 
 #[tokio::test]
 async fn broker_sends_messages_from_subscribed_topic_to_client_test() {
@@ -25,7 +26,8 @@ async fn broker_sends_messages_from_subscribed_topic_to_client_test() {
             topic: "test-topic".to_string(),
             payload: format!("test-payload-{}", i).into_bytes(),
         };
-        publisher.send_and_receive(publish).await;
+        let ack = publisher.send_and_receive(publish).await;
+        assert_eq!(ack, Response::Ack);
     }
 
     let messages = messages.await.expect("Failed to receive messages");

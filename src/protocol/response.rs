@@ -8,8 +8,14 @@ use tokio_util::codec::{Decoder, Encoder};
 pub enum Response {
     Pong,
     Ack,
+    Nack,
     Message { topic: String, payload: Vec<u8> },
 }
+
+const PONG_TYPE: u8 = 0x02;
+const ACK_TYPE: u8 = 0x04;
+const NACK_TYPE: u8 = 0x06;
+const MESSAGE_TYPE: u8 = 0x08;
 
 pub struct ResponseCodec;
 
@@ -23,9 +29,10 @@ impl Decoder for ResponseCodec {
         }
         let response_type = src.get_u8();
         match response_type {
-            0x02 => Ok(Some(Response::Pong)),
-            0x04 => Ok(Some(Response::Ack)),
-            0x06 => {
+            PONG_TYPE => Ok(Some(Response::Pong)),
+            ACK_TYPE => Ok(Some(Response::Ack)),
+            NACK_TYPE => Ok(Some(Response::Nack)),
+            MESSAGE_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 let payload = get_u32_as_vec(src, "payload")?;
                 let response = Response::Message { topic, payload };
@@ -45,10 +52,11 @@ impl Encoder<Response> for ResponseCodec {
 
     fn encode(&mut self, response: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match response {
-            Response::Pong => dst.put_u8(0x02),
-            Response::Ack => dst.put_u8(0x04),
+            Response::Pong => dst.put_u8(PONG_TYPE),
+            Response::Ack => dst.put_u8(ACK_TYPE),
+            Response::Nack => dst.put_u8(NACK_TYPE),
             Response::Message { topic, payload } => {
-                dst.put_u8(0x06);
+                dst.put_u8(MESSAGE_TYPE);
                 put_u16_len_string(dst, &topic);
                 put_u32_len_vec(dst, &payload);
             }
@@ -72,7 +80,7 @@ mod tests {
     #[test]
     fn decode_pong_response_test() {
         let mut codec = ResponseCodec;
-        let mut bytes = BytesMut::from(vec![0x02].as_slice());
+        let mut bytes = BytesMut::from(vec![PONG_TYPE].as_slice());
         let response = codec
             .decode(&mut bytes)
             .expect("Failed to decode PONG response")
@@ -83,7 +91,7 @@ mod tests {
     #[test]
     fn decode_ack_response_test() {
         let mut codec = ResponseCodec;
-        let mut bytes = BytesMut::from(vec![0x04].as_slice());
+        let mut bytes = BytesMut::from(vec![ACK_TYPE].as_slice());
         let response = codec
             .decode(&mut bytes)
             .expect("Failed to decode ACK response")
@@ -92,11 +100,22 @@ mod tests {
     }
 
     #[test]
+    fn decode_nack_response_test() {
+        let mut codec = ResponseCodec;
+        let mut bytes = BytesMut::from(vec![NACK_TYPE].as_slice());
+        let response = codec
+            .decode(&mut bytes)
+            .expect("Failed to decode NACK response")
+            .expect("Empty response");
+        assert_eq!(Response::Nack, response);
+    }
+
+    #[test]
     fn decode_message_response_test() {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut bytes = BytesMut::from(vec![0x06].as_slice());
+        let mut bytes = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
         bytes.put_u32(payload.len() as u32);
@@ -118,7 +137,7 @@ mod tests {
         codec
             .encode(Response::Pong, &mut bytes)
             .expect("Failed to encode PING response");
-        assert_eq!(vec![0x02], bytes);
+        assert_eq!(vec![PONG_TYPE], bytes);
     }
 
     #[test]
@@ -128,7 +147,17 @@ mod tests {
         codec
             .encode(Response::Ack, &mut bytes)
             .expect("Failed to encode ACK response");
-        assert_eq!(vec![0x04], bytes);
+        assert_eq!(vec![ACK_TYPE], bytes);
+    }
+
+    #[test]
+    fn encode_nack_response_test() {
+        let mut codec = ResponseCodec;
+        let mut bytes = BytesMut::new();
+        codec
+            .encode(Response::Nack, &mut bytes)
+            .expect("Failed to encode NACK response");
+        assert_eq!(vec![NACK_TYPE], bytes);
     }
 
     #[test]
@@ -136,7 +165,7 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut response = BytesMut::from(vec![0x06].as_slice());
+        let mut response = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
         response.put_u16(topic.len() as u16);
         response.put_slice(topic.as_bytes());
         response.put_u32(payload.len() as u32);

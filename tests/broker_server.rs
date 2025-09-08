@@ -1,4 +1,4 @@
-mod helpers;
+pub mod helpers;
 
 use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;

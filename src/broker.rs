@@ -15,11 +15,14 @@ pub struct BrokerState {
 }
 
 impl BrokerState {
-    pub fn add_topic(&mut self, topic_name: &str) -> Arc<RwLock<Topic>> {
-        let topic_name = topic_name.to_string();
-        let topic = Arc::new(RwLock::new(Topic::new(&topic_name)));
-        self.topics.insert(topic_name, Arc::clone(&topic));
-        topic
+    pub fn add_topic(&mut self, topic_name: &str) -> bool {
+        if !self.topics.contains_key(topic_name) {
+            let topic_name = topic_name.to_string();
+            let topic = Arc::new(RwLock::new(Topic::new(&topic_name)));
+            self.topics.insert(topic_name, Arc::clone(&topic));
+            return true;
+        }
+        false
     }
 
     pub fn get_or_create_topic(&mut self, topic_name: &str) -> Arc<RwLock<Topic>> {
@@ -97,6 +100,14 @@ async fn handle_connection(
         tracing::debug!("Received request: {:?}", request);
         match request {
             Request::Ping => sender.send(Response::Pong)?,
+            Request::AddTopic { topic } => {
+                let is_topic_added = add_topic(&topic, broker_state).await;
+                if is_topic_added {
+                    sender.send(Response::Ack)?;
+                } else {
+                    sender.send(Response::Nack)?;
+                }
+            }
             Request::Publish { topic, payload } => {
                 publish(&topic, payload, broker_state).await;
                 sender.send(Response::Ack)?;
@@ -121,6 +132,18 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+async fn add_topic(topic: &str, broker_state: &RwLock<BrokerState>) -> bool {
+    tracing::debug!("Adding topic: {}", topic);
+    let is_topic_added = {
+        let mut broker_state_guard = broker_state.write().await;
+        broker_state_guard.add_topic(topic)
+    };
+    if !is_topic_added {
+        tracing::warn!("Topic with name {} already exists", topic);
+    }
+    is_topic_added
 }
 
 async fn publish(topic: &str, payload: Vec<u8>, broker_state: &RwLock<BrokerState>) {

@@ -7,9 +7,15 @@ use tokio_util::codec::{Decoder, Encoder};
 #[derive(PartialEq, Debug)]
 pub enum Request {
     Ping,
+    AddTopic { topic: String },
     Publish { topic: String, payload: Vec<u8> },
     Subscribe { topic: String, client_id: String },
 }
+
+const PING_TYPE: u8 = 0x01;
+const ADD_TOPIC_TYPE: u8 = 0x03;
+const PUBLISH_TYPE: u8 = 0x05;
+const SUBSCRIBE_TYPE: u8 = 0x07;
 
 pub struct RequestCodec;
 
@@ -23,14 +29,18 @@ impl Decoder for RequestCodec {
         }
         let request_type = src.get_u8();
         match request_type {
-            0x01 => Ok(Some(Request::Ping)),
-            0x03 => {
+            PING_TYPE => Ok(Some(Request::Ping)),
+            ADD_TOPIC_TYPE => {
+                let topic = get_u16_as_string(src, "topic")?;
+                Ok(Some(Request::AddTopic { topic }))
+            }
+            PUBLISH_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 let payload = get_u32_as_vec(src, "payload")?;
                 let request = Request::Publish { topic, payload };
                 Ok(Some(request))
             }
-            0x05 => {
+            SUBSCRIBE_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 let client_id = get_u16_as_string(src, "client_id")?;
                 let request = Request::Subscribe { topic, client_id };
@@ -50,14 +60,18 @@ impl Encoder<Request> for RequestCodec {
 
     fn encode(&mut self, request: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match request {
-            Request::Ping => dst.put_u8(0x01),
+            Request::Ping => dst.put_u8(PING_TYPE),
+            Request::AddTopic { topic } => {
+                dst.put_u8(ADD_TOPIC_TYPE);
+                put_u16_len_string(dst, &topic);
+            }
             Request::Publish { topic, payload } => {
-                dst.put_u8(0x03);
+                dst.put_u8(PUBLISH_TYPE);
                 put_u16_len_string(dst, &topic);
                 put_u32_len_vec(dst, &payload);
             }
             Request::Subscribe { topic, client_id } => {
-                dst.put_u8(0x05);
+                dst.put_u8(SUBSCRIBE_TYPE);
                 put_u16_len_string(dst, &topic);
                 put_u16_len_string(dst, &client_id);
             }
@@ -81,7 +95,7 @@ mod tests {
     #[test]
     fn decode_ping_request_test() {
         let mut codec = RequestCodec;
-        let mut bytes = BytesMut::from(vec![0x01].as_slice());
+        let mut bytes = BytesMut::from(vec![PING_TYPE].as_slice());
         let request = codec
             .decode(&mut bytes)
             .expect("Failed to decode PING request")
@@ -90,11 +104,28 @@ mod tests {
     }
 
     #[test]
+    fn decode_add_topic_request_test() {
+        let topic = "test-topic-name".to_string();
+
+        let mut bytes = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
+        bytes.put_u16(topic.len() as u16);
+        bytes.put_slice(topic.as_bytes());
+
+        let mut codec = RequestCodec;
+        let request = codec
+            .decode(&mut bytes)
+            .expect("Failed to decode ADD_TOPIC request")
+            .expect("Empty request");
+
+        assert_eq!(Request::AddTopic { topic }, request);
+    }
+
+    #[test]
     fn decode_publish_request_test() {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut bytes = BytesMut::from(vec![0x03].as_slice());
+        let mut bytes = BytesMut::from(vec![PUBLISH_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
         bytes.put_u32(payload.len() as u32);
@@ -114,7 +145,7 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let client_id = "test-client-id".to_string();
 
-        let mut bytes = BytesMut::from(vec![0x05].as_slice());
+        let mut bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
         bytes.put_u16(client_id.len() as u16);
@@ -136,7 +167,25 @@ mod tests {
         codec
             .encode(Request::Ping, &mut bytes)
             .expect("Failed to encode PING request");
-        assert_eq!(vec![0x01], bytes);
+        assert_eq!(vec![PING_TYPE], bytes);
+    }
+
+    #[test]
+    fn encode_add_topic_request_test() {
+        let topic = "test-topic-name".to_string();
+
+        let mut request = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
+        request.put_u16(topic.len() as u16);
+        request.put_slice(topic.as_bytes());
+        let request = request.freeze();
+
+        let mut codec = RequestCodec;
+        let mut bytes = BytesMut::new();
+        codec
+            .encode(Request::AddTopic { topic }, &mut bytes)
+            .expect("Failed to encode ADD_TOPIC request");
+
+        assert_eq!(request, bytes);
     }
 
     #[test]
@@ -144,7 +193,7 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut request = BytesMut::from(vec![0x03].as_slice());
+        let mut request = BytesMut::from(vec![PUBLISH_TYPE].as_slice());
         request.put_u16(topic.len() as u16);
         request.put_slice(topic.as_bytes());
         request.put_u32(payload.len() as u32);
@@ -165,7 +214,7 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let client_id = "test-client-id".to_string();
 
-        let mut request = BytesMut::from(vec![0x05].as_slice());
+        let mut request = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
         request.put_u16(topic.len() as u16);
         request.put_slice(topic.as_bytes());
         request.put_u16(client_id.len() as u16);
