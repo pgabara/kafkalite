@@ -30,7 +30,7 @@ impl TestBroker {
         let join = tokio::spawn({
             let shutdown_signal = Arc::clone(&shutdown_signal);
             async move {
-                kafkalite::broker::start_broker(config, shutdown_signal)
+                kafkalite::startup::run_broker(config, shutdown_signal)
                     .await
                     .expect("Failed to start broker");
             }
