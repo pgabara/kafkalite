@@ -1,9 +1,8 @@
 pub mod helpers;
 
+use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
-use crate::helpers::{test_broker, test_client};
-
 
 #[tokio::test]
 async fn broker_returns_ack_on_adding_new_topic_test() {

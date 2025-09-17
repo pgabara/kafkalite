@@ -4,13 +4,18 @@ use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
 
-
 #[tokio::test]
 async fn broker_sends_messages_from_subscribed_topic_to_client_test() {
     let test_broker = test_broker::TestBroker::start().await;
 
     let mut publisher = test_client::TestClient::connect(test_broker.socket_addr).await;
     let mut subscriber = test_client::TestClient::connect(test_broker.socket_addr).await;
+
+    let add_topic = Request::AddTopic {
+        topic: "test-topic".to_string(),
+    };
+    let ack = publisher.send_and_receive(add_topic).await;
+    assert_eq!(ack, Response::Ack);
 
     let subscribe = Request::Subscribe {
         topic: "test-topic".to_string(),

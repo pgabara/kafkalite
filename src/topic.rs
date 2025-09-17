@@ -1,6 +1,23 @@
 use std::collections::HashMap;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+pub trait TopicManager {
+    async fn add_topic(&self, topic_name: TopicName) -> Result<bool, Box<dyn std::error::Error>>;
+}
+
+pub trait TopicPublisher {
+    async fn publish(
+        &self,
+        topic_name: TopicName,
+        payload: Message,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn subscribe(
+        &self,
+        topic_name: TopicName,
+        client_id: ClientId,
+    ) -> Result<Subscription, Box<dyn std::error::Error>>;
+}
+
 pub struct Topic {
     pub topic_name: String,
     subscribers: HashMap<ClientId, UnboundedSender<Message>>,
@@ -17,13 +34,15 @@ impl Topic {
 
 type ClientId = String;
 
+pub type TopicName = String;
+
 impl Topic {
     pub fn subscribe(&mut self, client_id: &str) -> Subscription {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         self.subscribers
             .entry(client_id.to_string())
             .or_insert(sender);
-        Subscription::new(client_id.to_string(), receiver)
+        Subscription::new(self.topic_name.to_string(), receiver)
     }
 
     pub fn publish(&mut self, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
@@ -35,14 +54,14 @@ impl Topic {
 }
 
 pub struct Subscription {
-    pub client_id: ClientId,
+    pub topic_name: String,
     pub receiver: UnboundedReceiver<Message>,
 }
 
 impl Subscription {
-    pub fn new(client_id: ClientId, receiver: UnboundedReceiver<Message>) -> Self {
+    pub fn new(topic_name: TopicName, receiver: UnboundedReceiver<Message>) -> Self {
         Subscription {
-            client_id,
+            topic_name,
             receiver,
         }
     }
