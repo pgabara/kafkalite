@@ -1,21 +1,31 @@
 use std::collections::HashMap;
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub trait TopicManager {
-    async fn add_topic(&self, topic_name: TopicName) -> Result<bool, Box<dyn std::error::Error>>;
+    async fn add_topic(&self, topic_name: &TopicName) -> bool;
 }
 
 pub trait TopicPublisher {
     async fn publish(
         &self,
-        topic_name: TopicName,
+        topic_name: &TopicName,
         payload: Message,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    ) -> Result<(), TopicPublishError>;
     async fn subscribe(
         &self,
-        topic_name: TopicName,
-        client_id: ClientId,
-    ) -> Result<Subscription, Box<dyn std::error::Error>>;
+        topic_name: &TopicName,
+        client_id: &ClientId,
+    ) -> Result<Subscription, TopicSubscribeError>;
+}
+
+pub enum TopicPublishError {
+    TopicNotFound(TopicName),
+    SendError(SendError<Message>),
+}
+
+pub enum TopicSubscribeError {
+    TopicNotFound(TopicName),
 }
 
 pub struct Topic {
@@ -32,7 +42,7 @@ impl Topic {
     }
 }
 
-type ClientId = String;
+pub type ClientId = String;
 
 pub type TopicName = String;
 
@@ -45,7 +55,7 @@ impl Topic {
         Subscription::new(self.topic_name.to_string(), receiver)
     }
 
-    pub fn publish(&mut self, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn publish(&mut self, payload: Vec<u8>) -> Result<(), SendError<Message>> {
         for subscriber in self.subscribers.values() {
             subscriber.send(Message::new(payload.clone()))?
         }

@@ -5,6 +5,25 @@ use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
 
 #[tokio::test]
+async fn broker_returns_error_when_client_tries_to_subscribe_to_unknown_topic() {
+    let test_broker = test_broker::TestBroker::start().await;
+
+    let mut subscriber = test_client::TestClient::connect(test_broker.socket_addr).await;
+
+    let subscribe = Request::Subscribe {
+        topic: "test-topic".to_string(),
+        client_id: "test-client".to_string(),
+    };
+    let ack = subscriber.send_and_receive(subscribe).await;
+    assert_eq!(
+        ack,
+        Response::Error {
+            message: "Topic test-topic not found".to_string()
+        }
+    );
+}
+
+#[tokio::test]
 async fn broker_sends_messages_from_subscribed_topic_to_client_test() {
     let test_broker = test_broker::TestBroker::start().await;
 

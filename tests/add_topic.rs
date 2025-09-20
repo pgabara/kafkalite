@@ -33,7 +33,12 @@ async fn broker_returns_nack_on_adding_two_times_the_same_topic_test() {
         topic: "test-topic".to_string(),
     };
     let nack = test_client.send_and_receive(add_topic).await;
-    assert_eq!(nack, Response::Nack);
+    assert_eq!(
+        nack,
+        Response::Error {
+            message: "Topic test-topic already exists".to_string()
+        }
+    );
 
     test_broker.stop().await;
 }

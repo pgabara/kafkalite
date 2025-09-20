@@ -1,17 +1,37 @@
 use crate::protocol::response::Response;
+use crate::router::IntoResponse;
 use crate::server::BrokerResponse;
-use crate::topic::{Message, TopicPublisher};
+use crate::topic::{Message, TopicName, TopicPublishError, TopicPublisher};
 
 pub async fn handle_request<P>(
-    topic: String,
+    topic: TopicName,
     payload: Vec<u8>,
     publisher: &P,
-) -> Result<BrokerResponse, Box<dyn std::error::Error>>
+) -> Result<BrokerResponse, PublishError>
 where
     P: TopicPublisher,
 {
     tracing::debug!("Publishing to {}", topic);
     let message = Message::new(payload);
-    publisher.publish(topic, message).await?;
+    publisher.publish(&topic, message).await?;
     Ok(BrokerResponse::BasicResponse(Response::Ack))
+}
+
+pub struct PublishError(String);
+
+impl From<TopicPublishError> for PublishError {
+    fn from(e: TopicPublishError) -> Self {
+        match e {
+            TopicPublishError::TopicNotFound(topic_name) => {
+                PublishError(format!("Topic {} not found", topic_name))
+            }
+            TopicPublishError::SendError(e) => PublishError(e.to_string()),
+        }
+    }
+}
+
+impl IntoResponse for PublishError {
+    fn into_response(self) -> Response {
+        Response::Error { message: self.0 }
+    }
 }

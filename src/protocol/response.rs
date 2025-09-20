@@ -6,12 +6,14 @@ use tokio_util::codec::{Decoder, Encoder};
 
 #[derive(PartialEq, Debug)]
 pub enum Response {
+    Error { message: String },
     Pong,
     Ack,
     Nack,
     Message { topic: String, payload: Vec<u8> },
 }
 
+const ERROR_TYPE: u8 = 0x00;
 const PONG_TYPE: u8 = 0x02;
 const ACK_TYPE: u8 = 0x04;
 const NACK_TYPE: u8 = 0x06;
@@ -29,6 +31,10 @@ impl Decoder for ResponseCodec {
         }
         let response_type = src.get_u8();
         match response_type {
+            ERROR_TYPE => {
+                let message = get_u16_as_string(src, "message")?;
+                Ok(Some(Response::Error { message }))
+            }
             PONG_TYPE => Ok(Some(Response::Pong)),
             ACK_TYPE => Ok(Some(Response::Ack)),
             NACK_TYPE => Ok(Some(Response::Nack)),
@@ -52,6 +58,10 @@ impl Encoder<Response> for ResponseCodec {
 
     fn encode(&mut self, response: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match response {
+            Response::Error { message } => {
+                dst.put_u8(ERROR_TYPE);
+                put_u16_len_string(dst, &message);
+            }
             Response::Pong => dst.put_u8(PONG_TYPE),
             Response::Ack => dst.put_u8(ACK_TYPE),
             Response::Nack => dst.put_u8(NACK_TYPE),

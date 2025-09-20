@@ -69,7 +69,7 @@ async fn handle_connection(
             accepted_request = reader.next() => {
                 match accepted_request {
                     Some(request) => {
-                        let response = router::route_broker_request(request?, broker).await?;
+                        let response = router::route_broker_request(request?, broker).await;
                         sender.send(response)?;
 
                     }

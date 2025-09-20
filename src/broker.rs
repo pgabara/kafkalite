@@ -1,7 +1,8 @@
-use crate::topic::{Message, Subscription, Topic, TopicManager, TopicName, TopicPublisher};
+use crate::topic::{
+    ClientId, Message, Subscription, Topic, TopicManager, TopicName, TopicPublishError,
+    TopicPublisher, TopicSubscribeError,
+};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::Formatter;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -11,63 +12,48 @@ pub struct Broker {
 }
 
 impl TopicManager for Broker {
-    async fn add_topic(&self, topic_name: String) -> Result<bool, Box<dyn Error>> {
+    async fn add_topic(&self, topic_name: &TopicName) -> bool {
         {
             let mut topics = self.topics.write().await;
-            if topics.contains_key(&topic_name) {
-                return Ok(false);
+            if topics.contains_key(topic_name) {
+                return false;
             }
-            let topic = Arc::new(RwLock::new(Topic::new(&topic_name)));
-            topics.insert(topic_name, topic);
+            let topic = Arc::new(RwLock::new(Topic::new(topic_name)));
+            topics.insert(topic_name.clone(), topic);
         }
-        Ok(true)
+        true
     }
 }
 
 impl TopicPublisher for Broker {
-    async fn publish(&self, topic_name: TopicName, message: Message) -> Result<(), Box<dyn Error>> {
+    async fn publish(
+        &self,
+        topic_name: &TopicName,
+        message: Message,
+    ) -> Result<(), TopicPublishError> {
         let topic = {
             let topics = self.topics.read().await;
-            topics.get(&topic_name).cloned()
+            topics.get(topic_name).cloned()
         };
-        let topic = topic.ok_or(BrokerError::new("Topic not found"))?;
+        let topic = topic.ok_or(TopicPublishError::TopicNotFound(topic_name.to_string()))?;
         let mut topic_guard = topic.write().await;
-        topic_guard.publish(message.payload)
+        topic_guard
+            .publish(message.payload)
+            .map_err(TopicPublishError::SendError)
     }
 
     async fn subscribe(
         &self,
-        topic_name: TopicName,
-        client_id: String,
-    ) -> Result<Subscription, Box<dyn Error>> {
+        topic_name: &TopicName,
+        client_id: &ClientId,
+    ) -> Result<Subscription, TopicSubscribeError> {
         let topic = {
             let topics = self.topics.read().await;
-            topics.get(&topic_name).cloned()
+            topics.get(topic_name).cloned()
         };
-        let topic = topic.ok_or(BrokerError::new("Topic not found"))?;
+        let topic = topic.ok_or(TopicSubscribeError::TopicNotFound(topic_name.to_string()))?;
         let mut topic_guard = topic.write().await;
-        let subscription = topic_guard.subscribe(&client_id);
+        let subscription = topic_guard.subscribe(client_id);
         Ok(subscription)
     }
 }
-
-#[derive(Debug)]
-struct BrokerError {
-    details: String,
-}
-
-impl BrokerError {
-    pub fn new(details: &str) -> Self {
-        Self {
-            details: details.to_string(),
-        }
-    }
-}
-
-impl std::fmt::Display for BrokerError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.details)
-    }
-}
-
-impl Error for BrokerError {}
