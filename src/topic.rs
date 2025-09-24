@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use uuid::Uuid;
 
 pub trait TopicManager {
     async fn add_topic(&self, topic_name: &TopicName) -> bool;
@@ -12,16 +12,24 @@ pub trait TopicPublisher {
         topic_name: &TopicName,
         payload: Message,
     ) -> Result<(), TopicPublishError>;
-    async fn subscribe(
-        &self,
-        topic_name: &TopicName,
-        client_id: &ClientId,
-    ) -> Result<Subscription, TopicSubscribeError>;
 }
 
 pub enum TopicPublishError {
     TopicNotFound(TopicName),
-    SendError(SendError<Message>),
+}
+
+pub trait TopicSubscriber {
+    async fn subscribe(
+        &self,
+        topic_name: &TopicName,
+        client_id: ClientId,
+    ) -> Result<Subscription, TopicSubscribeError>;
+
+    async fn unsubscribe(
+        &self,
+        topic_name: &TopicName,
+        client_id: ClientId,
+    ) -> Result<(), TopicSubscribeError>;
 }
 
 pub enum TopicSubscribeError {
@@ -29,7 +37,7 @@ pub enum TopicSubscribeError {
 }
 
 pub struct Topic {
-    pub topic_name: String,
+    pub topic_name: TopicName,
     subscribers: HashMap<ClientId, UnboundedSender<Message>>,
 }
 
@@ -42,29 +50,38 @@ impl Topic {
     }
 }
 
-pub type ClientId = String;
+pub type ClientId = Uuid;
 
 pub type TopicName = String;
 
 impl Topic {
-    pub fn subscribe(&mut self, client_id: &str) -> Subscription {
+    pub fn subscribe(&mut self, client_id: ClientId) -> Subscription {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
-        self.subscribers
-            .entry(client_id.to_string())
-            .or_insert(sender);
+        self.subscribers.entry(client_id).or_insert(sender);
         Subscription::new(self.topic_name.to_string(), receiver)
     }
 
-    pub fn publish(&mut self, payload: Vec<u8>) -> Result<(), SendError<Message>> {
-        for subscriber in self.subscribers.values() {
-            subscriber.send(Message::new(payload.clone()))?
+    pub fn unsubscribe(&mut self, client_id: ClientId) {
+        self.subscribers.remove(&client_id);
+    }
+
+    pub fn publish(&mut self, payload: Vec<u8>) {
+        let mut dead_subscribers = vec![];
+
+        for (&client_id, subscriber) in self.subscribers.iter() {
+            if subscriber.send(Message::new(payload.clone())).is_err() {
+                dead_subscribers.push(client_id);
+            }
         }
-        Ok(())
+
+        for client_id in dead_subscribers {
+            self.subscribers.remove(&client_id);
+        }
     }
 }
 
 pub struct Subscription {
-    pub topic_name: String,
+    pub topic_name: TopicName,
     pub receiver: UnboundedReceiver<Message>,
 }
 

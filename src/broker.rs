@@ -1,6 +1,6 @@
 use crate::topic::{
     ClientId, Message, Subscription, Topic, TopicManager, TopicName, TopicPublishError,
-    TopicPublisher, TopicSubscribeError,
+    TopicPublisher, TopicSubscribeError, TopicSubscriber,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,15 +37,16 @@ impl TopicPublisher for Broker {
         };
         let topic = topic.ok_or(TopicPublishError::TopicNotFound(topic_name.to_string()))?;
         let mut topic_guard = topic.write().await;
-        topic_guard
-            .publish(message.payload)
-            .map_err(TopicPublishError::SendError)
+        topic_guard.publish(message.payload);
+        Ok(())
     }
+}
 
+impl TopicSubscriber for Broker {
     async fn subscribe(
         &self,
         topic_name: &TopicName,
-        client_id: &ClientId,
+        client_id: ClientId,
     ) -> Result<Subscription, TopicSubscribeError> {
         let topic = {
             let topics = self.topics.read().await;
@@ -55,5 +56,20 @@ impl TopicPublisher for Broker {
         let mut topic_guard = topic.write().await;
         let subscription = topic_guard.subscribe(client_id);
         Ok(subscription)
+    }
+
+    async fn unsubscribe(
+        &self,
+        topic_name: &TopicName,
+        client_id: ClientId,
+    ) -> Result<(), TopicSubscribeError> {
+        let topic = {
+            let topics = self.topics.read().await;
+            topics.get(topic_name).cloned()
+        };
+        let topic = topic.ok_or(TopicSubscribeError::TopicNotFound(topic_name.to_string()))?;
+        let mut topic_guard = topic.write().await;
+        topic_guard.unsubscribe(client_id);
+        Ok(())
     }
 }

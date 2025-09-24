@@ -3,6 +3,7 @@ pub mod helpers;
 use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn broker_returns_error_when_client_tries_to_subscribe_to_unknown_topic() {
@@ -12,11 +13,11 @@ async fn broker_returns_error_when_client_tries_to_subscribe_to_unknown_topic() 
 
     let subscribe = Request::Subscribe {
         topic: "test-topic".to_string(),
-        client_id: "test-client".to_string(),
+        client_id: Uuid::new_v4(),
     };
-    let ack = subscriber.send_and_receive(subscribe).await;
+    let response = subscriber.send_and_receive(subscribe).await;
     assert_eq!(
-        ack,
+        response,
         Response::Error {
             message: "Topic test-topic not found".to_string()
         }
@@ -38,7 +39,7 @@ async fn broker_sends_messages_from_subscribed_topic_to_client_test() {
 
     let subscribe = Request::Subscribe {
         topic: "test-topic".to_string(),
-        client_id: "test-client".to_string(),
+        client_id: Uuid::new_v4(),
     };
     let ack = subscriber.send_and_receive(subscribe).await;
     assert_eq!(ack, Response::Ack);

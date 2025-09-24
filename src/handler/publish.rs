@@ -25,7 +25,6 @@ impl From<TopicPublishError> for PublishError {
             TopicPublishError::TopicNotFound(topic_name) => {
                 PublishError(format!("Topic {} not found", topic_name))
             }
-            TopicPublishError::SendError(e) => PublishError(e.to_string()),
         }
     }
 }

@@ -8,5 +8,6 @@ tokio = { version = "1.47", features = ["net", "time", "rt-multi-thread", "macro
 tokio-util = { version = "0.7", features = ["codec"] }
 futures = { version = "0.3" }
 bytes = "1.10"
+uuid = { version = "1.18", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "fmt", "env-filter"] }
