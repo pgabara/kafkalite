@@ -3,6 +3,7 @@ pub mod helpers;
 use crate::helpers::{test_broker, test_client};
 use kafkalite::protocol::request::Request;
 use kafkalite::protocol::response::Response;
+use std::time::Duration;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -69,8 +70,10 @@ async fn broker_unsubscribes_from_existing_topic() {
     let response = publisher.send_and_receive(publish).await;
     assert_eq!(response, Response::Ack);
 
-    let is_connection_closed = subscriber.check_is_connection_closed().await;
-    assert!(is_connection_closed);
+    let no_messages_received = subscriber
+        .receive_no_messages(Duration::from_millis(100))
+        .await;
+    assert!(no_messages_received);
 
     test_broker.stop().await;
 }
