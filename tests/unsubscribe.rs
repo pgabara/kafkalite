@@ -35,6 +35,7 @@ async fn broker_unsubscribes_from_existing_topic() {
 
     let add_topic = Request::AddTopic {
         topic: "test-topic".to_string(),
+        retention: 1,
     };
     let response = publisher.send_and_receive(add_topic).await;
     assert_eq!(response, Response::Ack);

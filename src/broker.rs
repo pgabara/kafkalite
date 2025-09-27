@@ -1,6 +1,6 @@
 use crate::topic::{
-    ClientId, Message, Subscription, Topic, TopicManager, TopicName, TopicPublishError,
-    TopicPublisher, TopicSubscribeError, TopicSubscriber,
+    ClientId, Subscription, Topic, TopicManager, TopicName, TopicPublishError, TopicPublisher,
+    TopicSubscribeError, TopicSubscriber,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,13 +12,13 @@ pub struct Broker {
 }
 
 impl TopicManager for Broker {
-    async fn add_topic(&self, topic_name: &TopicName) -> bool {
+    async fn add_topic(&self, topic_name: &TopicName, retention: u64) -> bool {
         {
             let mut topics = self.topics.write().await;
             if topics.contains_key(topic_name) {
                 return false;
             }
-            let topic = Arc::new(RwLock::new(Topic::new(topic_name)));
+            let topic = Arc::new(RwLock::new(Topic::new(topic_name, retention)));
             topics.insert(topic_name.clone(), topic);
         }
         true
@@ -38,7 +38,7 @@ impl TopicPublisher for Broker {
     async fn publish(
         &self,
         topic_name: &TopicName,
-        message: Message,
+        message_payload: Vec<u8>,
     ) -> Result<(), TopicPublishError> {
         let topic = {
             let topics = self.topics.read().await;
@@ -46,7 +46,7 @@ impl TopicPublisher for Broker {
         };
         let topic = topic.ok_or(TopicPublishError::TopicNotFound(topic_name.to_string()))?;
         let mut topic_guard = topic.write().await;
-        topic_guard.publish(message.payload);
+        topic_guard.publish(message_payload);
         Ok(())
     }
 }

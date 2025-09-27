@@ -147,6 +147,7 @@ impl BrokerSender {
                     let response = Response::Message {
                         topic: subscription.topic_name.to_string(),
                         payload: message.payload,
+                        offset: message.offset,
                     };
                     let _ = sender.send(response);
                 }

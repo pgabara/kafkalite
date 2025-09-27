@@ -1,7 +1,7 @@
 use crate::protocol::response::Response;
 use crate::router::IntoResponse;
 use crate::server::BrokerResponse;
-use crate::topic::{Message, TopicName, TopicPublishError, TopicPublisher};
+use crate::topic::{TopicName, TopicPublishError, TopicPublisher};
 
 pub async fn handle_request<P>(
     topic: TopicName,
@@ -12,8 +12,7 @@ where
     P: TopicPublisher,
 {
     tracing::debug!("Publishing to {}", topic);
-    let message = Message::new(payload);
-    publisher.publish(&topic, message).await?;
+    publisher.publish(&topic, payload).await?;
     Ok(BrokerResponse::BasicResponse(Response::Ack))
 }
 

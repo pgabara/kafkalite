@@ -32,6 +32,7 @@ async fn delete_topic() {
 
     let add_topic = Request::AddTopic {
         topic: "test-topic".to_string(),
+        retention: 1,
     };
     let ack = test_client_1.send_and_receive(add_topic).await;
     assert_eq!(Response::Ack, ack);

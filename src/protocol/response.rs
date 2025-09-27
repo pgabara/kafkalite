@@ -8,12 +8,20 @@ use tokio_util::codec::{Decoder, Encoder};
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Response {
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Pong,
     Ack,
     Nack,
-    Message { topic: String, payload: Vec<u8> },
-    TopicsList { topics: Vec<TopicName> },
+    Message {
+        topic: String,
+        payload: Vec<u8>,
+        offset: u64,
+    },
+    TopicsList {
+        topics: Vec<TopicName>,
+    },
 }
 
 const ERROR_TYPE: u8 = 0x00;
@@ -45,7 +53,12 @@ impl Decoder for ResponseCodec {
             MESSAGE_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 let payload = get_u32_as_vec(src, "payload")?;
-                let response = Response::Message { topic, payload };
+                let offset = src.get_u64();
+                let response = Response::Message {
+                    topic,
+                    payload,
+                    offset,
+                };
                 Ok(Some(response))
             }
             TOPICS_LIST_TYPE => {
@@ -74,10 +87,15 @@ impl Encoder<Response> for ResponseCodec {
             Response::Pong => dst.put_u8(PONG_TYPE),
             Response::Ack => dst.put_u8(ACK_TYPE),
             Response::Nack => dst.put_u8(NACK_TYPE),
-            Response::Message { topic, payload } => {
+            Response::Message {
+                topic,
+                payload,
+                offset,
+            } => {
                 dst.put_u8(MESSAGE_TYPE);
                 put_u16_len_string(dst, &topic);
                 put_u32_len_vec(dst, &payload);
+                dst.put_u64(offset);
             }
             Response::TopicsList { topics } => {
                 dst.put_u8(TOPICS_LIST_TYPE);
@@ -123,14 +141,23 @@ mod tests {
     fn decode_message_response_test() {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
+        let offset = 0;
 
         let mut bytes = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
         bytes.put_u32(payload.len() as u32);
         bytes.put_slice(payload.as_slice());
+        bytes.put_u64(offset);
 
-        decode_response_test(&mut bytes, Response::Message { topic, payload });
+        decode_response_test(
+            &mut bytes,
+            Response::Message {
+                topic,
+                payload,
+                offset,
+            },
+        );
     }
 
     #[test]
@@ -173,15 +200,24 @@ mod tests {
     fn encode_message_response_test() {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
+        let offset = 0;
 
         let mut expected_bytes = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
         expected_bytes.put_u16(topic.len() as u16);
         expected_bytes.put_slice(topic.as_bytes());
         expected_bytes.put_u32(payload.len() as u32);
         expected_bytes.put_slice(payload.as_slice());
+        expected_bytes.put_u64(offset);
         let expected_bytes = expected_bytes.freeze();
 
-        encode_response_test(Response::Message { topic, payload }, expected_bytes);
+        encode_response_test(
+            Response::Message {
+                topic,
+                payload,
+                offset,
+            },
+            expected_bytes,
+        );
     }
 
     #[test]

@@ -11,6 +11,7 @@ async fn broker_returns_ack_on_adding_new_topic_test() {
 
     let add_topic = Request::AddTopic {
         topic: "test-topic".to_string(),
+        retention: 1,
     };
     let ack = test_client.send_and_receive(add_topic).await;
     assert_eq!(ack, Response::Ack);
@@ -25,12 +26,14 @@ async fn broker_returns_nack_on_adding_two_times_the_same_topic_test() {
 
     let add_topic = Request::AddTopic {
         topic: "test-topic".to_string(),
+        retention: 1,
     };
     let ack = test_client.send_and_receive(add_topic).await;
     assert_eq!(ack, Response::Ack);
 
     let add_topic = Request::AddTopic {
         topic: "test-topic".to_string(),
+        retention: 1,
     };
     let nack = test_client.send_and_receive(add_topic).await;
     assert_eq!(

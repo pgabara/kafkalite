@@ -24,12 +24,14 @@ async fn return_list_of_topics() {
 
     let add_topic_1 = Request::AddTopic {
         topic: "test-topic-1".to_string(),
+        retention: 1,
     };
     let ack = test_client_1.send_and_receive(add_topic_1).await;
     assert_eq!(ack, Response::Ack);
 
     let add_topic_2 = Request::AddTopic {
         topic: "test-topic-2".to_string(),
+        retention: 1,
     };
     let ack = test_client_2.send_and_receive(add_topic_2).await;
     assert_eq!(ack, Response::Ack);

@@ -10,6 +10,7 @@ pub enum Request {
     Ping,
     AddTopic {
         topic: TopicName,
+        retention: u64,
     },
     ListTopics,
     DeleteTopic {
@@ -52,7 +53,8 @@ impl Decoder for RequestCodec {
             PING_TYPE => Ok(Some(Request::Ping)),
             ADD_TOPIC_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
-                Ok(Some(Request::AddTopic { topic }))
+                let retention = src.get_u64();
+                Ok(Some(Request::AddTopic { topic, retention }))
             }
             LIST_TOPICS_TYPE => Ok(Some(Request::ListTopics)),
             DELETE_TOPIC_TYPE => {
@@ -92,9 +94,10 @@ impl Encoder<Request> for RequestCodec {
     fn encode(&mut self, request: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match request {
             Request::Ping => dst.put_u8(PING_TYPE),
-            Request::AddTopic { topic } => {
+            Request::AddTopic { topic, retention } => {
                 dst.put_u8(ADD_TOPIC_TYPE);
                 put_u16_len_string(dst, &topic);
+                dst.put_u64(retention);
             }
             Request::ListTopics => {
                 dst.put_u8(LIST_TOPICS_TYPE);
@@ -146,12 +149,14 @@ mod tests {
     #[test]
     fn decode_add_topic_request_test() {
         let topic = "test-topic-name".to_string();
+        let retention = 1024;
 
         let mut bytes = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
+        bytes.put_u64(retention);
 
-        decode_request_test(&mut bytes, Request::AddTopic { topic });
+        decode_request_test(&mut bytes, Request::AddTopic { topic, retention });
     }
 
     #[test]
@@ -220,13 +225,15 @@ mod tests {
     #[test]
     fn encode_add_topic_request_test() {
         let topic = "test-topic-name".to_string();
+        let retention = 1024;
 
         let mut expected_bytes = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
         expected_bytes.put_u16(topic.len() as u16);
         expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_u64(retention);
         let expected_bytes = expected_bytes.freeze();
 
-        encode_request_test(Request::AddTopic { topic }, expected_bytes);
+        encode_request_test(Request::AddTopic { topic, retention }, expected_bytes);
     }
 
     #[test]

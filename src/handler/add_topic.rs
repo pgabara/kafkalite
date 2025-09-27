@@ -5,13 +5,14 @@ use crate::topic::{TopicManager, TopicName};
 
 pub async fn handle_request<T>(
     topic_name: TopicName,
+    retention: u64,
     topic_manager: &T,
 ) -> Result<BrokerResponse, AddTopicError>
 where
     T: TopicManager,
 {
     tracing::debug!("Adding new topic: {}", topic_name);
-    let is_topic_added = topic_manager.add_topic(&topic_name).await;
+    let is_topic_added = topic_manager.add_topic(&topic_name, retention).await;
     if is_topic_added {
         Ok(BrokerResponse::BasicResponse(Response::Ack))
     } else {

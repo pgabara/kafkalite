@@ -10,7 +10,9 @@ where
 {
     match request {
         Request::Ping => ping().await,
-        Request::AddTopic { topic } => unwrap_response(add_topic(topic, broker).await),
+        Request::AddTopic { topic, retention } => {
+            unwrap_response(add_topic(topic, retention, broker).await)
+        }
         Request::ListTopics => list_topics(broker).await,
         Request::DeleteTopic { topic } => unwrap_response(delete_topic(topic, broker).await),
         Request::Publish { topic, payload } => {
