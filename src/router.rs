@@ -1,4 +1,4 @@
-use crate::handler::{add_topic, ping, publish, subscribe, unsubscribe};
+use crate::handler::{add_topic, delete_topic, list_topics, ping, publish, subscribe, unsubscribe};
 use crate::protocol::request::Request;
 use crate::protocol::response::Response;
 use crate::server::BrokerResponse;
@@ -11,6 +11,8 @@ where
     match request {
         Request::Ping => ping().await,
         Request::AddTopic { topic } => unwrap_response(add_topic(topic, broker).await),
+        Request::ListTopics => list_topics(broker).await,
+        Request::DeleteTopic { topic } => unwrap_response(delete_topic(topic, broker).await),
         Request::Publish { topic, payload } => {
             unwrap_response(publish(topic, payload, broker).await)
         }

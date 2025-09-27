@@ -86,6 +86,7 @@ async fn handle_connection(
         }
     }
 
+    // todo: unsubscribe client from all topics it is subscribed to
     Ok(())
 }
 

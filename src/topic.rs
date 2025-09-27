@@ -4,6 +4,8 @@ use uuid::Uuid;
 
 pub trait TopicManager {
     async fn add_topic(&self, topic_name: &TopicName) -> bool;
+    async fn delete_topic(&self, topic_name: &TopicName) -> bool;
+    async fn list_topics(&self) -> Vec<TopicName>;
 }
 
 pub trait TopicPublisher {

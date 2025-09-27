@@ -5,10 +5,14 @@ use crate::topic::{ClientId, TopicName};
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Request {
     Ping,
     AddTopic {
+        topic: TopicName,
+    },
+    ListTopics,
+    DeleteTopic {
         topic: TopicName,
     },
     Publish {
@@ -27,9 +31,11 @@ pub enum Request {
 
 const PING_TYPE: u8 = 0x01;
 const ADD_TOPIC_TYPE: u8 = 0x03;
-const PUBLISH_TYPE: u8 = 0x05;
-const SUBSCRIBE_TYPE: u8 = 0x07;
-const UNSUBSCRIBE_TYPE: u8 = 0x09;
+const LIST_TOPICS_TYPE: u8 = 0x05;
+const DELETE_TOPIC_TYPE: u8 = 0x07;
+const PUBLISH_TYPE: u8 = 0x09;
+const SUBSCRIBE_TYPE: u8 = 0x11;
+const UNSUBSCRIBE_TYPE: u8 = 0x13;
 
 pub struct RequestCodec;
 
@@ -47,6 +53,11 @@ impl Decoder for RequestCodec {
             ADD_TOPIC_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 Ok(Some(Request::AddTopic { topic }))
+            }
+            LIST_TOPICS_TYPE => Ok(Some(Request::ListTopics)),
+            DELETE_TOPIC_TYPE => {
+                let topic = get_u16_as_string(src, "topic")?;
+                Ok(Some(Request::DeleteTopic { topic }))
             }
             PUBLISH_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
@@ -85,6 +96,13 @@ impl Encoder<Request> for RequestCodec {
                 dst.put_u8(ADD_TOPIC_TYPE);
                 put_u16_len_string(dst, &topic);
             }
+            Request::ListTopics => {
+                dst.put_u8(LIST_TOPICS_TYPE);
+            }
+            Request::DeleteTopic { topic } => {
+                dst.put_u8(DELETE_TOPIC_TYPE);
+                put_u16_len_string(dst, &topic);
+            }
             Request::Publish { topic, payload } => {
                 dst.put_u8(PUBLISH_TYPE);
                 put_u16_len_string(dst, &topic);
@@ -108,6 +126,7 @@ impl Encoder<Request> for RequestCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use uuid::Uuid;
 
     #[test]
@@ -120,13 +139,8 @@ mod tests {
 
     #[test]
     fn decode_ping_request_test() {
-        let mut codec = RequestCodec;
         let mut bytes = BytesMut::from(vec![PING_TYPE].as_slice());
-        let request = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode PING request")
-            .expect("Empty request");
-        assert_eq!(Request::Ping, request);
+        decode_request_test(&mut bytes, Request::Ping);
     }
 
     #[test]
@@ -137,13 +151,24 @@ mod tests {
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
 
-        let mut codec = RequestCodec;
-        let request = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode ADD_TOPIC request")
-            .expect("Empty request");
+        decode_request_test(&mut bytes, Request::AddTopic { topic });
+    }
 
-        assert_eq!(Request::AddTopic { topic }, request);
+    #[test]
+    fn decode_list_topics_request_test() {
+        let mut bytes = BytesMut::from(vec![LIST_TOPICS_TYPE].as_slice());
+        decode_request_test(&mut bytes, Request::ListTopics);
+    }
+
+    #[test]
+    fn decode_delete_topic_request_test() {
+        let topic = "test-topic-name".to_string();
+
+        let mut bytes = BytesMut::from(vec![DELETE_TOPIC_TYPE].as_slice());
+        bytes.put_u16(topic.len() as u16);
+        bytes.put_slice(topic.as_bytes());
+
+        decode_request_test(&mut bytes, Request::DeleteTopic { topic });
     }
 
     #[test]
@@ -157,13 +182,7 @@ mod tests {
         bytes.put_u32(payload.len() as u32);
         bytes.put_slice(payload.as_slice());
 
-        let mut codec = RequestCodec;
-        let request = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode PUBLISH request")
-            .expect("Empty request");
-
-        assert_eq!(Request::Publish { topic, payload }, request);
+        decode_request_test(&mut bytes, Request::Publish { topic, payload });
     }
 
     #[test]
@@ -176,13 +195,7 @@ mod tests {
         bytes.put_slice(topic.as_bytes());
         bytes.put_slice(client_id.as_bytes());
 
-        let mut codec = RequestCodec;
-        let request = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode SUBSCRIBE request")
-            .expect("Empty request");
-
-        assert_eq!(Request::Subscribe { topic, client_id }, request);
+        decode_request_test(&mut bytes, Request::Subscribe { topic, client_id });
     }
 
     #[test]
@@ -195,41 +208,43 @@ mod tests {
         bytes.put_slice(topic.as_bytes());
         bytes.put_slice(client_id.as_bytes());
 
-        let mut codec = RequestCodec;
-        let request = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode SUBSCRIBE request")
-            .expect("Empty request");
-
-        assert_eq!(Request::Unsubscribe { topic, client_id }, request);
+        decode_request_test(&mut bytes, Request::Unsubscribe { topic, client_id });
     }
 
     #[test]
     fn encode_ping_request_test() {
-        let mut codec = RequestCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Request::Ping, &mut bytes)
-            .expect("Failed to encode PING request");
-        assert_eq!(vec![PING_TYPE], bytes);
+        let expected_bytes = BytesMut::from(vec![PING_TYPE].as_slice()).freeze();
+        encode_request_test(Request::Ping, expected_bytes)
     }
 
     #[test]
     fn encode_add_topic_request_test() {
         let topic = "test-topic-name".to_string();
 
-        let mut request = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
-        request.put_u16(topic.len() as u16);
-        request.put_slice(topic.as_bytes());
-        let request = request.freeze();
+        let mut expected_bytes = BytesMut::from(vec![ADD_TOPIC_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        let expected_bytes = expected_bytes.freeze();
 
-        let mut codec = RequestCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Request::AddTopic { topic }, &mut bytes)
-            .expect("Failed to encode ADD_TOPIC request");
+        encode_request_test(Request::AddTopic { topic }, expected_bytes);
+    }
 
-        assert_eq!(request, bytes);
+    #[test]
+    fn encode_list_topics_request_test() {
+        let expected_bytes = BytesMut::from(vec![LIST_TOPICS_TYPE].as_slice()).freeze();
+        encode_request_test(Request::ListTopics, expected_bytes)
+    }
+
+    #[test]
+    fn encode_delete_topic_request_test() {
+        let topic = "test-topic-name".to_string();
+
+        let mut expected_bytes = BytesMut::from(vec![DELETE_TOPIC_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        let expected_bytes = expected_bytes.freeze();
+
+        encode_request_test(Request::DeleteTopic { topic }, expected_bytes);
     }
 
     #[test]
@@ -237,20 +252,14 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut request = BytesMut::from(vec![PUBLISH_TYPE].as_slice());
-        request.put_u16(topic.len() as u16);
-        request.put_slice(topic.as_bytes());
-        request.put_u32(payload.len() as u32);
-        request.put_slice(payload.as_slice());
-        let request = request.freeze();
+        let mut expected_bytes = BytesMut::from(vec![PUBLISH_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_u32(payload.len() as u32);
+        expected_bytes.put_slice(payload.as_slice());
+        let expected_bytes = expected_bytes.freeze();
 
-        let mut codec = RequestCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Request::Publish { topic, payload }, &mut bytes)
-            .expect("Failed to encode PUBLISH request");
-
-        assert_eq!(request, bytes);
+        encode_request_test(Request::Publish { topic, payload }, expected_bytes);
     }
 
     #[test]
@@ -258,19 +267,13 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let client_id = Uuid::new_v4();
 
-        let mut request = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
-        request.put_u16(topic.len() as u16);
-        request.put_slice(topic.as_bytes());
-        request.put_slice(client_id.as_bytes());
-        let request = request.freeze();
+        let mut expected_bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_slice(client_id.as_bytes());
+        let expected_bytes = expected_bytes.freeze();
 
-        let mut codec = RequestCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Request::Subscribe { topic, client_id }, &mut bytes)
-            .expect("Failed to encode SUBSCRIBE request");
-
-        assert_eq!(request, bytes);
+        encode_request_test(Request::Subscribe { topic, client_id }, expected_bytes);
     }
 
     #[test]
@@ -278,18 +281,38 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let client_id = Uuid::new_v4();
 
-        let mut request = BytesMut::from(vec![UNSUBSCRIBE_TYPE].as_slice());
-        request.put_u16(topic.len() as u16);
-        request.put_slice(topic.as_bytes());
-        request.put_slice(client_id.as_bytes());
-        let request = request.freeze();
+        let mut expected_bytes = BytesMut::from(vec![UNSUBSCRIBE_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_slice(client_id.as_bytes());
+        let expected_bytes = expected_bytes.freeze();
 
+        encode_request_test(Request::Unsubscribe { topic, client_id }, expected_bytes);
+    }
+
+    fn decode_request_test(bytes: &mut BytesMut, expected_request: Request) {
+        let mut codec = RequestCodec;
+        let request = codec
+            .decode(bytes)
+            .expect("Failed to decode request")
+            .expect("Empty request");
+        assert_eq!(
+            expected_request, request,
+            "failed to decode {:?} request",
+            request
+        );
+    }
+
+    fn encode_request_test(request: Request, expected_bytes: Bytes) {
         let mut codec = RequestCodec;
         let mut bytes = BytesMut::new();
         codec
-            .encode(Request::Unsubscribe { topic, client_id }, &mut bytes)
-            .expect("Failed to encode SUBSCRIBE request");
-
-        assert_eq!(request, bytes);
+            .encode(request.clone(), &mut bytes)
+            .expect("Failed to encode request");
+        assert_eq!(
+            expected_bytes, bytes,
+            "failed to encode {:?} request",
+            request
+        );
     }
 }

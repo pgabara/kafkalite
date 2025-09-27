@@ -1,16 +1,19 @@
 use crate::protocol::codec::{
-    get_u16_as_string, get_u32_as_vec, put_u16_len_string, put_u32_len_vec,
+    get_u16_as_string, get_u32_as_vec, get_vec_of_strings, put_u16_len_string, put_u32_len_vec,
+    put_vec_of_strings,
 };
+use crate::topic::TopicName;
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Response {
     Error { message: String },
     Pong,
     Ack,
     Nack,
     Message { topic: String, payload: Vec<u8> },
+    TopicsList { topics: Vec<TopicName> },
 }
 
 const ERROR_TYPE: u8 = 0x00;
@@ -18,6 +21,7 @@ const PONG_TYPE: u8 = 0x02;
 const ACK_TYPE: u8 = 0x04;
 const NACK_TYPE: u8 = 0x06;
 const MESSAGE_TYPE: u8 = 0x08;
+const TOPICS_LIST_TYPE: u8 = 0x10;
 
 pub struct ResponseCodec;
 
@@ -42,6 +46,11 @@ impl Decoder for ResponseCodec {
                 let topic = get_u16_as_string(src, "topic")?;
                 let payload = get_u32_as_vec(src, "payload")?;
                 let response = Response::Message { topic, payload };
+                Ok(Some(response))
+            }
+            TOPICS_LIST_TYPE => {
+                let topics = get_vec_of_strings(src, "topics")?;
+                let response = Response::TopicsList { topics };
                 Ok(Some(response))
             }
             _ => {
@@ -70,6 +79,10 @@ impl Encoder<Response> for ResponseCodec {
                 put_u16_len_string(dst, &topic);
                 put_u32_len_vec(dst, &payload);
             }
+            Response::TopicsList { topics } => {
+                dst.put_u8(TOPICS_LIST_TYPE);
+                put_vec_of_strings(dst, topics.as_slice());
+            }
         }
         Ok(())
     }
@@ -78,6 +91,7 @@ impl Encoder<Response> for ResponseCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
 
     #[test]
     fn failed_on_decoding_unsupported_response_test() {
@@ -89,35 +103,20 @@ mod tests {
 
     #[test]
     fn decode_pong_response_test() {
-        let mut codec = ResponseCodec;
         let mut bytes = BytesMut::from(vec![PONG_TYPE].as_slice());
-        let response = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode PONG response")
-            .expect("Empty response");
-        assert_eq!(Response::Pong, response);
+        decode_response_test(&mut bytes, Response::Pong);
     }
 
     #[test]
     fn decode_ack_response_test() {
-        let mut codec = ResponseCodec;
         let mut bytes = BytesMut::from(vec![ACK_TYPE].as_slice());
-        let response = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode ACK response")
-            .expect("Empty response");
-        assert_eq!(Response::Ack, response);
+        decode_response_test(&mut bytes, Response::Ack);
     }
 
     #[test]
     fn decode_nack_response_test() {
-        let mut codec = ResponseCodec;
         let mut bytes = BytesMut::from(vec![NACK_TYPE].as_slice());
-        let response = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode NACK response")
-            .expect("Empty response");
-        assert_eq!(Response::Nack, response);
+        decode_response_test(&mut bytes, Response::Nack);
     }
 
     #[test]
@@ -131,43 +130,43 @@ mod tests {
         bytes.put_u32(payload.len() as u32);
         bytes.put_slice(payload.as_slice());
 
-        let mut codec = ResponseCodec;
-        let response = codec
-            .decode(&mut bytes)
-            .expect("Failed to decode MESSAGE response")
-            .expect("Empty response");
+        decode_response_test(&mut bytes, Response::Message { topic, payload });
+    }
 
-        assert_eq!(Response::Message { topic, payload }, response);
+    #[test]
+    fn decode_topics_list_response_test() {
+        let topics = vec![
+            TopicName::from("test-topic-name-1"),
+            TopicName::from("test-topic-name-2"),
+            TopicName::from("test-topic-name-3"),
+        ];
+
+        let mut bytes = BytesMut::from(vec![TOPICS_LIST_TYPE].as_slice());
+        bytes.put_u16(topics.len() as u16);
+        for topic in topics.iter() {
+            bytes.put_u16(topic.len() as u16);
+            bytes.put_slice(topic.as_bytes());
+        }
+
+        decode_response_test(&mut bytes, Response::TopicsList { topics });
     }
 
     #[test]
     fn encode_pong_response_test() {
-        let mut codec = ResponseCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Response::Pong, &mut bytes)
-            .expect("Failed to encode PING response");
-        assert_eq!(vec![PONG_TYPE], bytes);
+        let expected_bytes = BytesMut::from(vec![PONG_TYPE].as_slice()).freeze();
+        encode_response_test(Response::Pong, expected_bytes);
     }
 
     #[test]
     fn encode_ack_response_test() {
-        let mut codec = ResponseCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Response::Ack, &mut bytes)
-            .expect("Failed to encode ACK response");
-        assert_eq!(vec![ACK_TYPE], bytes);
+        let expected_bytes = BytesMut::from(vec![ACK_TYPE].as_slice()).freeze();
+        encode_response_test(Response::Ack, expected_bytes);
     }
 
     #[test]
     fn encode_nack_response_test() {
-        let mut codec = ResponseCodec;
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(Response::Nack, &mut bytes)
-            .expect("Failed to encode NACK response");
-        assert_eq!(vec![NACK_TYPE], bytes);
+        let expected_bytes = BytesMut::from(vec![NACK_TYPE].as_slice()).freeze();
+        encode_response_test(Response::Nack, expected_bytes);
     }
 
     #[test]
@@ -175,19 +174,58 @@ mod tests {
         let topic = "test-topic-name".to_string();
         let payload = b"test-payload".to_vec();
 
-        let mut response = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
-        response.put_u16(topic.len() as u16);
-        response.put_slice(topic.as_bytes());
-        response.put_u32(payload.len() as u32);
-        response.put_slice(payload.as_slice());
-        let response = response.freeze();
+        let mut expected_bytes = BytesMut::from(vec![MESSAGE_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_u32(payload.len() as u32);
+        expected_bytes.put_slice(payload.as_slice());
+        let expected_bytes = expected_bytes.freeze();
 
+        encode_response_test(Response::Message { topic, payload }, expected_bytes);
+    }
+
+    #[test]
+    fn encode_topics_list_response_test() {
+        let topics = vec![
+            TopicName::from("test-topic-name-1"),
+            TopicName::from("test-topic-name-2"),
+            TopicName::from("test-topic-name-3"),
+        ];
+
+        let mut expected_bytes = BytesMut::from(vec![TOPICS_LIST_TYPE].as_slice());
+        expected_bytes.put_u16(topics.len() as u16);
+        for topic in topics.iter() {
+            expected_bytes.put_u16(topic.len() as u16);
+            expected_bytes.put_slice(topic.as_bytes());
+        }
+        let expected_bytes = expected_bytes.freeze();
+
+        encode_response_test(Response::TopicsList { topics }, expected_bytes);
+    }
+
+    fn decode_response_test(bytes: &mut BytesMut, expected_response: Response) {
+        let mut codec = ResponseCodec;
+        let request = codec
+            .decode(bytes)
+            .expect("Failed to decode response")
+            .expect("Empty response");
+        assert_eq!(
+            expected_response, request,
+            "failed to decode {:?} response",
+            request
+        );
+    }
+
+    fn encode_response_test(response: Response, expected_bytes: Bytes) {
         let mut codec = ResponseCodec;
         let mut bytes = BytesMut::new();
         codec
-            .encode(Response::Message { topic, payload }, &mut bytes)
-            .expect("Failed to encode MESSAGE response");
-
-        assert_eq!(response, bytes);
+            .encode(response.clone(), &mut bytes)
+            .expect("Failed to encode response");
+        assert_eq!(
+            expected_bytes, bytes,
+            "failed to encode {:?} response",
+            response
+        );
     }
 }

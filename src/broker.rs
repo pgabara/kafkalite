@@ -23,6 +23,15 @@ impl TopicManager for Broker {
         }
         true
     }
+
+    async fn delete_topic(&self, topic_name: &TopicName) -> bool {
+        let mut topics = self.topics.write().await;
+        topics.remove(topic_name).is_some()
+    }
+
+    async fn list_topics(&self) -> Vec<TopicName> {
+        self.topics.read().await.keys().cloned().collect()
+    }
 }
 
 impl TopicPublisher for Broker {
