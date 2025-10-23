@@ -24,6 +24,7 @@ pub trait TopicSubscriber {
     async fn subscribe(
         &self,
         topic_name: &TopicName,
+        from_offset: Option<u64>,
         client_id: ClientId,
     ) -> Result<Subscription, TopicSubscribeError>;
 
@@ -63,11 +64,18 @@ pub type ClientId = Uuid;
 pub type TopicName = String;
 
 impl Topic {
-    pub fn subscribe(&mut self, client_id: ClientId) -> Subscription {
+    pub fn subscribe(&mut self, client_id: ClientId, from_offset: Option<u64>) -> Subscription {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<MessageRecord>();
 
+        let start_offset = match from_offset {
+            Some(offset) => offset,
+            None => self.next_offset,
+        };
+
         for message in self.log.iter() {
-            let _ = sender.send(message.clone());
+            if message.offset >= start_offset {
+                let _ = sender.send(message.clone());
+            }
         }
 
         self.subscribers
@@ -191,18 +199,51 @@ mod tests {
     }
 
     #[test]
-    fn replies_retained_messages_when_new_client_subscribe_to_topic() {
+    fn replies_all_retained_messages_when_new_client_subscribe_to_topic() {
         let mut topic = Topic::new("topic-1", 3);
 
         topic.publish(vec![1]);
         topic.publish(vec![2]);
 
-        let mut subscription = topic.subscribe(ClientId::new_v4());
+        let from_offset = Some(0);
+        let mut subscription = topic.subscribe(ClientId::new_v4(), from_offset);
 
         let mut messages = vec![];
         subscription.receiver.blocking_recv_many(&mut messages, 2);
 
         let payloads: Vec<u8> = messages.iter().map(|m| m.payload[0]).collect();
         assert_eq!(payloads, vec![1, 2]);
+    }
+
+    #[test]
+    fn replies_retained_messages_starting_from_given_offset_when_new_client_subscribe_to_topic() {
+        let mut topic = Topic::new("topic-1", 5);
+
+        topic.publish(vec![1]);
+        topic.publish(vec![2]);
+        topic.publish(vec![3]);
+        topic.publish(vec![4]);
+
+        let from_offset = Some(2);
+        let mut subscription = topic.subscribe(ClientId::new_v4(), from_offset);
+
+        let mut messages = vec![];
+        subscription.receiver.blocking_recv_many(&mut messages, 2);
+
+        let payloads: Vec<u8> = messages.iter().map(|m| m.payload[0]).collect();
+        assert_eq!(payloads, vec![3, 4]);
+    }
+
+    #[test]
+    fn replies_no_messages_when_new_client_subscribe_to_topic_without_from_offset() {
+        let mut topic = Topic::new("topic-1", 3);
+
+        topic.publish(vec![1]);
+        topic.publish(vec![2]);
+
+        let from_offset = None;
+        let subscription = topic.subscribe(ClientId::new_v4(), from_offset);
+
+        assert!(subscription.receiver.is_empty());
     }
 }

@@ -55,6 +55,7 @@ impl TopicSubscriber for Broker {
     async fn subscribe(
         &self,
         topic_name: &TopicName,
+        from_offset: Option<u64>,
         client_id: ClientId,
     ) -> Result<Subscription, TopicSubscribeError> {
         let topic = {
@@ -63,7 +64,7 @@ impl TopicSubscriber for Broker {
         };
         let topic = topic.ok_or(TopicSubscribeError::TopicNotFound(topic_name.to_string()))?;
         let mut topic_guard = topic.write().await;
-        let subscription = topic_guard.subscribe(client_id);
+        let subscription = topic_guard.subscribe(client_id, from_offset);
         Ok(subscription)
     }
 

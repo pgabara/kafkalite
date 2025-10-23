@@ -1,5 +1,6 @@
 use crate::protocol::codec::{
-    get_u16_as_string, get_u32_as_vec, get_uuid, put_u16_len_string, put_u32_len_vec, put_uuid,
+    get_u16_as_string, get_u32_as_vec, get_u64_option, get_uuid, put_u16_len_string,
+    put_u32_len_vec, put_u64_option, put_uuid,
 };
 use crate::topic::{ClientId, TopicName};
 use bytes::{Buf, BufMut, BytesMut};
@@ -23,6 +24,7 @@ pub enum Request {
     Subscribe {
         topic: TopicName,
         client_id: ClientId,
+        from_offset: Option<u64>,
     },
     Unsubscribe {
         topic: TopicName,
@@ -70,7 +72,12 @@ impl Decoder for RequestCodec {
             SUBSCRIBE_TYPE => {
                 let topic = get_u16_as_string(src, "topic")?;
                 let client_id = get_uuid(src, "client_id")?;
-                let request = Request::Subscribe { topic, client_id };
+                let from_offset = get_u64_option(src, "from_offset")?;
+                let request = Request::Subscribe {
+                    topic,
+                    client_id,
+                    from_offset,
+                };
                 Ok(Some(request))
             }
             UNSUBSCRIBE_TYPE => {
@@ -111,10 +118,15 @@ impl Encoder<Request> for RequestCodec {
                 put_u16_len_string(dst, &topic);
                 put_u32_len_vec(dst, &payload);
             }
-            Request::Subscribe { topic, client_id } => {
+            Request::Subscribe {
+                topic,
+                client_id,
+                from_offset,
+            } => {
                 dst.put_u8(SUBSCRIBE_TYPE);
                 put_u16_len_string(dst, &topic);
                 put_uuid(dst, client_id);
+                put_u64_option(dst, from_offset);
             }
             Request::Unsubscribe { topic, client_id } => {
                 dst.put_u8(UNSUBSCRIBE_TYPE);
@@ -191,16 +203,48 @@ mod tests {
     }
 
     #[test]
-    fn decode_subscribe_request_test() {
+    fn decode_subscribe_request_without_offset_test() {
         let topic = "test-topic-name".to_string();
         let client_id = Uuid::new_v4();
+        let from_offset = None;
 
         let mut bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
         bytes.put_u16(topic.len() as u16);
         bytes.put_slice(topic.as_bytes());
         bytes.put_slice(client_id.as_bytes());
+        bytes.put_u8(0);
 
-        decode_request_test(&mut bytes, Request::Subscribe { topic, client_id });
+        decode_request_test(
+            &mut bytes,
+            Request::Subscribe {
+                topic,
+                client_id,
+                from_offset,
+            },
+        );
+    }
+
+    #[test]
+    fn decode_subscribe_request_with_offset_test() {
+        let topic = "test-topic-name".to_string();
+        let client_id = Uuid::new_v4();
+        let from_offset = Some(25);
+
+        let mut bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
+        bytes.put_u16(topic.len() as u16);
+        bytes.put_slice(topic.as_bytes());
+        bytes.put_slice(client_id.as_bytes());
+        bytes.put_u8(1);
+        bytes.put_u64(25);
+
+        decode_request_test(
+            &mut bytes,
+            Request::Subscribe {
+                topic,
+                client_id,
+                from_offset,
+            },
+        );
     }
 
     #[test]
@@ -270,17 +314,50 @@ mod tests {
     }
 
     #[test]
-    fn encode_subscribe_request_test() {
+    fn encode_subscribe_request_without_offset_test() {
         let topic = "test-topic-name".to_string();
         let client_id = Uuid::new_v4();
+        let from_offset = None;
 
         let mut expected_bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
         expected_bytes.put_u16(topic.len() as u16);
         expected_bytes.put_slice(topic.as_bytes());
         expected_bytes.put_slice(client_id.as_bytes());
+        expected_bytes.put_u8(0);
         let expected_bytes = expected_bytes.freeze();
 
-        encode_request_test(Request::Subscribe { topic, client_id }, expected_bytes);
+        encode_request_test(
+            Request::Subscribe {
+                topic,
+                client_id,
+                from_offset,
+            },
+            expected_bytes,
+        );
+    }
+
+    #[test]
+    fn encode_subscribe_request_with_offset_test() {
+        let topic = "test-topic-name".to_string();
+        let client_id = Uuid::new_v4();
+        let from_offset = Some(20);
+
+        let mut expected_bytes = BytesMut::from(vec![SUBSCRIBE_TYPE].as_slice());
+        expected_bytes.put_u16(topic.len() as u16);
+        expected_bytes.put_slice(topic.as_bytes());
+        expected_bytes.put_slice(client_id.as_bytes());
+        expected_bytes.put_u8(1);
+        expected_bytes.put_u64(20);
+        let expected_bytes = expected_bytes.freeze();
+
+        encode_request_test(
+            Request::Subscribe {
+                topic,
+                client_id,
+                from_offset,
+            },
+            expected_bytes,
+        );
     }
 
     #[test]

@@ -18,9 +18,11 @@ where
         Request::Publish { topic, payload } => {
             unwrap_response(publish(topic, payload, broker).await)
         }
-        Request::Subscribe { topic, client_id } => {
-            unwrap_response(subscribe(topic, client_id, broker).await)
-        }
+        Request::Subscribe {
+            topic,
+            client_id,
+            from_offset,
+        } => unwrap_response(subscribe(topic, client_id, from_offset, broker).await),
         Request::Unsubscribe { topic, client_id } => {
             unwrap_response(unsubscribe(topic, client_id, broker).await)
         }

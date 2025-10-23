@@ -43,6 +43,7 @@ async fn broker_unsubscribes_from_existing_topic() {
     let subscribe = Request::Subscribe {
         topic: "test-topic".to_string(),
         client_id: subscriber.client_id,
+        from_offset: Some(0),
     };
     let response = subscriber.send_and_receive(subscribe).await;
     assert_eq!(response, Response::Ack);

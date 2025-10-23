@@ -6,6 +6,7 @@ use crate::topic::{ClientId, TopicName, TopicSubscribeError, TopicSubscriber};
 pub async fn handle_request<S>(
     topic_name: TopicName,
     client_id: ClientId,
+    from_offset: Option<u64>,
     subscriber: &S,
 ) -> Result<BrokerResponse, SubscribeError>
 where
@@ -16,7 +17,9 @@ where
         client_id,
         topic_name
     );
-    let subscription = subscriber.subscribe(&topic_name, client_id).await?;
+    let subscription = subscriber
+        .subscribe(&topic_name, from_offset, client_id)
+        .await?;
     Ok(BrokerResponse::StreamedResponse(subscription))
 }
 
